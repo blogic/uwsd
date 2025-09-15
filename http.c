@@ -1333,8 +1333,10 @@ send_file(uwsd_client_context_t *cl, const char *path, const char *type, struct 
 		if (!type || !*type)
 			type = uwsd_file_mime_lookup(path);
 
-		if (config->default_charset && !strncmp(type, "text/", 5) && !strcasestr(type, "charset="))
-			asprintf(&cstype, "%s; charset=%s", type, config->default_charset);
+		if (config->default_charset && !strncmp(type, "text/", 5) && !strcasestr(type, "charset=")) {
+			if (asprintf(&cstype, "%s; charset=%s", type, config->default_charset) == -1)
+				cstype = NULL;
+		}
 
 		uwsd_http_reply(cl, 200, "OK", UWSD_HTTP_REPLY_EMPTY,
 			"Content-Type", cstype ? cstype : type,
