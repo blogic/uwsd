@@ -1308,7 +1308,7 @@ http_proxy_connect(uwsd_client_context_t *cl)
 }
 
 static int
-send_file(uwsd_client_context_t *cl, const char *path, const char *type, struct stat *s)
+send_file(uwsd_client_context_t *cl, uint16_t code, const char *reason, const char *path, const char *type, struct stat *s)
 {
 	char szbuf[sizeof("18446744073709551615")];
 	char *cstype = NULL;
@@ -1338,7 +1338,7 @@ send_file(uwsd_client_context_t *cl, const char *path, const char *type, struct 
 				cstype = NULL;
 		}
 
-		uwsd_http_reply(cl, 200, "OK", UWSD_HTTP_REPLY_EMPTY,
+		uwsd_http_reply(cl, code, reason, UWSD_HTTP_REPLY_EMPTY,
 			"Content-Type", cstype ? cstype : type,
 			"Content-Length", szbuf,
 			"ETag", uwsd_file_mktag(s),
@@ -1352,6 +1352,61 @@ send_file(uwsd_client_context_t *cl, const char *path, const char *type, struct 
 	}
 
 	return uwsd_http_reply_send(cl, reply_flags);
+}
+
+static const char *
+lookup_error_filename(uwsd_action_t *action, int error)
+{
+	char **filenames = action->data.directory.error_filenames;
+	int i;
+
+	if (!filenames)
+		return NULL;
+
+	for (i = 0; filenames[i]; i++) {
+		char *end;
+		int code = strtol(filenames[i], &end, 10);
+
+		if (end == filenames[i])
+			continue;
+
+		while (*end == ' ')
+			end++;
+
+		if (code == error && *end)
+			return end;
+	}
+
+	return NULL;
+}
+
+static bool
+http_error_serve(uwsd_client_context_t *cl, int error, const char *msg, const char *description)
+{
+	const char *filename = lookup_error_filename(cl->action, error);
+	struct stat s;
+
+	if (filename) {
+		char *base = cl->action->data.directory.path;
+		char *path = pathexpand(filename, base);
+
+		if (path && !stat(path, &s) && S_ISREG(s.st_mode)) {
+			int rv = send_file(cl, error, msg, path, cl->action->data.directory.content_type, &s);
+
+			free(path);
+
+			switch (rv) {
+			case 1:       return true;
+			case 0:       return false;
+			default:      break;
+			}
+		}
+		else {
+			free(path);
+		}
+	}
+
+	uwsd_http_error_return(cl, error, msg, description);
 }
 
 static bool
@@ -1379,7 +1434,7 @@ http_file_serve(uwsd_client_context_t *cl)
 		goto error404;
 	}
 
-	rv = send_file(cl, path, cl->action->data.file.content_type, &s);
+	rv = send_file(cl, 200, "OK", path, cl->action->data.file.content_type, &s);
 
 	switch (rv) {
 	case 1:       return true;
@@ -1390,16 +1445,16 @@ http_file_serve(uwsd_client_context_t *cl)
 	}
 
 error403:
-	uwsd_http_error_return(cl, 403, "Permission Denied",
+	return http_error_serve(cl, 403, "Permission Denied",
 		"Access to the requested path is forbidden");
 
 error404:
-	uwsd_http_error_return(cl, 404, "Not Found",
+	return http_error_serve(cl, 404, "Not Found",
 		"The requested path does not exist on this server");
 
 error500:
-	uwsd_http_error_return(cl, 500, "Internal Server Error",
-		"Unable to serve requested path: %s\n", strerror(-rv));
+	return http_error_serve(cl, 500, "Internal Server Error",
+		"Unable to serve requested path");
 }
 
 static char *
@@ -1469,6 +1524,7 @@ http_directory_serve(uwsd_client_context_t *cl)
 		goto error404;
 
 	url[strcspn(url, "?")] = 0;
+
 	path = pathexpand(url + strspn(url, "/"), base);
 
 	if (!path)
@@ -1500,13 +1556,13 @@ http_directory_serve(uwsd_client_context_t *cl)
 			rv = uwsd_file_directory_list(cl, path, url);
 		}
 		else {
-			rv = send_file(cl, p, type, &s);
+			rv = send_file(cl, 200, "OK", p, type, &s);
 		}
 
 		free(p);
 	}
 	else {
-		rv = send_file(cl, path, NULL, &s);
+		rv = send_file(cl, 200, "OK", path, NULL, &s);
 	}
 
 	switch (rv) {
@@ -1521,22 +1577,22 @@ error403:
 	free(path);
 	free(url);
 
-	uwsd_http_error_return(cl, 403, "Permission Denied",
+	return http_error_serve(cl, 403, "Permission Denied",
 		"Access to the requested path is forbidden");
 
 error404:
 	free(path);
 	free(url);
 
-	uwsd_http_error_return(cl, 404, "Not Found",
+	return http_error_serve(cl, 404, "Not Found",
 		"The requested path does not exist on this server");
 
 error500:
 	free(path);
 	free(url);
 
-	uwsd_http_error_return(cl, 500, "Internal Server Error",
-		"Unable to serve requested path: %s\n", strerror(-rv));
+	return http_error_serve(cl, 500, "Internal Server Error",
+		"Unable to serve requested path");
 
 success:
 	free(path);

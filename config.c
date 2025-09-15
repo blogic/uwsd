@@ -266,6 +266,8 @@ static const config_block_t serve_directory_spec = {
 			offsetof(uwsd_action_t, data.directory.content_type), { 0 } },
 		{ "index-filename", LIST,
 			offsetof(uwsd_action_t, data.directory.index_filenames), { 0 } },
+		{ "error-filename", LIST,
+			offsetof(uwsd_action_t, data.directory.error_filenames), { 0 } },
 		{ "directory-listing", BOOLEAN,
 			offsetof(uwsd_action_t, data.directory.directory_listing), { 0 } },
 		{ 0 }
@@ -1318,7 +1320,7 @@ parse_file(int dir, const char *file, struct stat *st)
 
 	input = xalloc(st->st_size + 1);
 
-	read(fd, input, st->st_size);
+	(void)read(fd, input, st->st_size);
 	close(fd);
 
 	off = (const char *)input;
