@@ -2526,13 +2526,24 @@ __hidden bool
 uwsd_script_bodydata(uwsd_client_context_t *cl, const void *data, size_t len)
 {
 	struct iovec iov[3];
+	const size_t chunk_size = sizeof(((script_connection_t *)NULL)->buf.data);
+	const uint8_t *ptr = data;
+	size_t remaining = len;
 	ssize_t total;
 
-	assert(len <= sizeof(((script_connection_t *)NULL)->buf.data));
+	while (remaining > chunk_size) {
+		total = single_tlv(iov, UWSD_SCRIPT_DATA_HTTP_DATA, chunk_size, ptr);
+
+		if (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) != total)
+			return false;
+
+		ptr += chunk_size;
+		remaining -= chunk_size;
+	}
 
 	total = single_tlv(iov,
-		len ? UWSD_SCRIPT_DATA_HTTP_DATA : UWSD_SCRIPT_DATA_HTTP_EOF,
-		len, data);
+		remaining ? UWSD_SCRIPT_DATA_HTTP_DATA : UWSD_SCRIPT_DATA_HTTP_EOF,
+		remaining, ptr);
 
 	return (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) == total);
 }
