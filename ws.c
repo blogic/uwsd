@@ -571,6 +571,13 @@ uwsd_ws_state_downstream_recv(uwsd_client_context_t *cl, uwsd_connection_state_t
 	if (!uwsd_io_readahead(&cl->downstream))
 		return; /* failure */
 
+	/* Peer half-closed the socket: no buffered frame data remains and the fd is
+	 * at EOF. Tear the connection down instead of returning, which would leave
+	 * the level-triggered uloop fd armed and spin the event loop at 100% CPU on
+	 * the persistent EPOLLRDHUP until the idle timeout fires. */
+	if (!uwsd_io_pending(&cl->downstream) && uwsd_io_eof(&cl->downstream))
+		return ws_terminate(cl, STATUS_GOING_AWAY, "Peer closed connection");
+
 	while (uwsd_io_pending(&cl->downstream)) {
 		if (!ws_downstream_rx(cl))
 			return; /* failure */
