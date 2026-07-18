@@ -87,12 +87,21 @@ uwsd_file_mktag(struct stat *s)
 __hidden time_t
 uwsd_file_date2unix(const char *date)
 {
+	static const char *formats[] = {
+		"%a, %d %b %Y %H:%M:%S %Z", /* RFC 1123 (IMF-fixdate) */
+		"%A, %d-%b-%y %H:%M:%S %Z", /* RFC 850 */
+		"%a %b %d %H:%M:%S %Y",     /* asctime */
+		NULL
+	};
 	struct tm t;
+	size_t i;
 
-	memset(&t, 0, sizeof(t));
+	for (i = 0; formats[i]; i++) {
+		memset(&t, 0, sizeof(t));
 
-	if (strptime(date, "%a, %d %b %Y %H:%M:%S %Z", &t) != NULL)
-		return timegm(&t);
+		if (strptime(date, formats[i], &t) != NULL)
+			return timegm(&t);
+	}
 
 	return 0;
 }
