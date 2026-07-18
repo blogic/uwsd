@@ -92,6 +92,11 @@ client_free(uwsd_client_context_t *cl, const char *reason, ...)
 	uloop_timeout_cancel(&cl->upstream.utm);
 	uloop_fd_delete(&cl->upstream.ufd);
 
+	if (cl->upstream.ssl) {
+		uwsd_ssl_close(&cl->upstream);
+		uwsd_ssl_client_free(cl);
+	}
+
 	if (cl->upstream.ufd.fd != -1)
 		close(cl->upstream.ufd.fd);
 
