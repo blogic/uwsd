@@ -173,16 +173,8 @@ uwsd_file_if_none_match(uwsd_client_context_t *cl, struct stat *s)
 __hidden bool
 uwsd_file_if_range(uwsd_client_context_t *cl, struct stat *s)
 {
-	char *hdr = uwsd_http_header_lookup(cl, "If-Range");
-
-	if (hdr) {
-		uwsd_http_reply(cl, 412, "Precondition Failed",
-			UWSD_HTTP_REPLY_EMPTY,
-			UWSD_HTTP_REPLY_EOH);
-
-		return false;
-	}
-
+	/* Range requests are not supported, so If-Range carries no meaning and is
+	 * ignored; the full representation is served rather than rejected. */
 	return true;
 }
 
