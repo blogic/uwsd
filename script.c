@@ -1807,6 +1807,15 @@ handle_termination(struct uloop_process *proc, int exitcode)
 	fprintf(stderr, "Script worker '%s' terminated with code %d\n",
 		action->data.script.path, exitcode);
 
+	uloop_fd_delete(&action->data.script.out);
+	uloop_fd_delete(&action->data.script.err);
+
+	xclose(action->data.script.out.fd);
+	xclose(action->data.script.err.fd);
+
+	action->data.script.out.fd = -1;
+	action->data.script.err.fd = -1;
+
 	action->data.script.timeout.cb = handle_restart;
 	uloop_timeout_set(&action->data.script.timeout, 1000);
 }
