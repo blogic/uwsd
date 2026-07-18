@@ -2429,21 +2429,32 @@ __hidden bool
 uwsd_script_send(uwsd_client_context_t *cl, const void *data, size_t len)
 {
 	struct iovec iov[3];
+	const size_t chunk_size = sizeof(((script_connection_t *)NULL)->buf.data);
+	const uint8_t *ptr = data;
+	size_t remaining = len;
 	ssize_t total;
 	uint16_t type;
 
-	assert(len <= sizeof(((script_connection_t *)NULL)->buf.data));
+	do {
+		size_t chunk = size_t_min(remaining, chunk_size);
 
-	cl->ws.len -= len;
+		cl->ws.len -= chunk;
 
-	if (len > 0)
-		type = cl->ws.len ? UWSD_SCRIPT_DATA_WS_FRAGMENT : UWSD_SCRIPT_DATA_WS_FINAL;
-	else
-		type = UWSD_SCRIPT_DATA_WS_EOF;
+		if (chunk > 0)
+			type = cl->ws.len ? UWSD_SCRIPT_DATA_WS_FRAGMENT : UWSD_SCRIPT_DATA_WS_FINAL;
+		else
+			type = UWSD_SCRIPT_DATA_WS_EOF;
 
-	total = single_tlv(iov, type, len, data);
+		total = single_tlv(iov, type, chunk, ptr);
 
-	return (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) == total);
+		if (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) != total)
+			return false;
+
+		ptr += chunk;
+		remaining -= chunk;
+	} while (remaining > 0);
+
+	return true;
 }
 
 __hidden void
