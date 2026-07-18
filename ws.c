@@ -540,12 +540,19 @@ uwsd_ws_state_upstream_recv(uwsd_client_context_t *cl, uwsd_connection_state_t s
 		done = ws_downstream_tx_iov(cl);
 	}
 	else {
-		if (!uwsd_io_pending(&cl->upstream))
+		size_t len = uwsd_io_pending(&cl->upstream);
+		void *data;
+
+		if (!len)
 			return uwsd_ws_connection_close(cl, STATUS_GOING_AWAY, "Upstream closed connection");
+
+		data = uwsd_io_getpos(&cl->upstream);
+
+		uwsd_io_consume(&cl->upstream, len);
 
 		done = ws_downstream_tx(cl,
 			cl->action->data.proxy.binary ? OPCODE_BINARY : OPCODE_TEXT,
-			true, uwsd_io_getpos(&cl->upstream), uwsd_io_pending(&cl->upstream));
+			true, data, len);
 	}
 
 	if (!done)
