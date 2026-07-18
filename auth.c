@@ -96,7 +96,7 @@ auth_check_credentials(uwsd_client_context_t *cl, uwsd_auth_t *auth,
 static bool
 check_basic(uwsd_auth_t *auth, uwsd_client_context_t *cl)
 {
-	char *hdr, *dec = NULL;
+	char *hdr, *scheme, *dec = NULL, *challenge;
 	size_t len;
 
 	hdr = uwsd_http_header_lookup(cl, "Authorization");
@@ -104,12 +104,12 @@ check_basic(uwsd_auth_t *auth, uwsd_client_context_t *cl)
 	if (!hdr)
 		goto fail;
 
-	dec = hdr + strcspn(hdr, " \t\r\n");
+	scheme = hdr + strcspn(hdr, " \t\r\n");
 
-	if (dec == hdr || strspncasecmp(hdr, dec, "Basic"))
+	if (scheme == hdr || strspncasecmp(hdr, scheme, "Basic"))
 		goto fail;
 
-	hdr = dec + strspn(dec, " \t\r\n");
+	hdr = scheme + strspn(scheme, " \t\r\n");
 	len = B64_DECODE_LEN(strlen(hdr));
 	dec = xalloc(len);
 
@@ -131,17 +131,17 @@ check_basic(uwsd_auth_t *auth, uwsd_client_context_t *cl)
 	return true;
 
 fail:
-	hdr = auth_www_authenticate_hdr(auth->data.basic.realm);
+	challenge = auth_www_authenticate_hdr(auth->data.basic.realm);
 
 	uwsd_http_reply(cl, 401, "Unauthorized",
 		"Login required\n",
-		"WWW-Authenticate", hdr,
+		"WWW-Authenticate", challenge,
 		UWSD_HTTP_REPLY_EOH);
 
 	uwsd_http_reply_send(cl, HTTP_WANT_CLOSE);
 
 	free(dec);
-	free(hdr);
+	free(challenge);
 
 	return false;
 }
