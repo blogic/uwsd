@@ -610,6 +610,12 @@ config_free_object(const config_block_t *spec, void *base)
 
 			break;
 
+		case LIST:
+			free(charptr_ptr(prop, base));
+			charptr_ptr(prop, base) = NULL;
+
+			break;
+
 		default:
 			break;
 		}
@@ -713,8 +719,11 @@ config_parse_value(const char **input, const config_prop_t *prop, void *base)
 		while (true) {
 			e = extract_string(input, ",;");
 
-			if (!e)
+			if (!e) {
+				free(l);
+
 				return false;
+			}
 
 			if (*e) {
 				l = xrealloc(l, sizeof(char *) * (n + 2));
