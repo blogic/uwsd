@@ -364,12 +364,16 @@ uwsd_file_directory_list(uwsd_client_context_t *cl, const char *physpath, const 
 		return -err;
 	}
 
-	snprintf(szbuf, sizeof(szbuf), "%lu", ftell(tmp));
+	long len = ftell(tmp);
+
+	snprintf(szbuf, sizeof(szbuf), "%lu", (unsigned long)len);
 
 	fflush(tmp);
 	fclose(tmp);
 
 	lseek(cl->upstream.ufd.fd, 0, SEEK_SET);
+
+	cl->http.sendfile_len = (len > 0) ? (size_t)len : 0;
 
 	uwsd_http_reply(cl, 200, "OK", UWSD_HTTP_REPLY_EMPTY,
 		"Content-Type", type ? type : "text/html; charset=utf-8",

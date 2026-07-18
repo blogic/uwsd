@@ -944,7 +944,8 @@ http_tx(uwsd_client_context_t *cl, uwsd_connection_state_t state)
 	if (cl->request_method != HTTP_HEAD) {
 		/* Use sendfile(2) to transfer contents */
 		if (cl->http.response_flags & HTTP_SEND_FILE) {
-			wlen = client_sendfile(conn, file->ufd.fd, NULL, sizeof(conn->buf.data));
+			wlen = client_sendfile(conn, file->ufd.fd, NULL,
+				size_t_min(cl->http.sendfile_len, sizeof(conn->buf.data)));
 
 			if (wlen == -1) {
 				/* The sendfile(2) facility is not implemented or not applicable,
@@ -967,8 +968,10 @@ http_tx(uwsd_client_context_t *cl, uwsd_connection_state_t state)
 				return false; /* failure */
 			}
 
-			/* Remain in send state as long as sendfile(2) transferred data */
-			if (wlen > 0)
+			cl->http.sendfile_len -= wlen;
+
+			/* Remain in send state until the advertised length is transferred */
+			if (wlen > 0 && cl->http.sendfile_len > 0)
 				return false; /* partial send */
 		}
 
@@ -979,9 +982,12 @@ http_tx(uwsd_client_context_t *cl, uwsd_connection_state_t state)
 					return false; /* failure */
 			} while (errno == EINTR);
 
-			/* Remain in send state as long as there is data to transmit */
-			if (uwsd_io_pending(file)) {
-				uwsd_iov_put(cl, uwsd_io_getbuf(file), uwsd_io_pending(file));
+			/* Remain in send state until the advertised length is transferred */
+			size_t avail = size_t_min(uwsd_io_pending(file), cl->http.sendfile_len);
+
+			if (avail > 0) {
+				uwsd_iov_put(cl, uwsd_io_getbuf(file), avail);
+				cl->http.sendfile_len -= avail;
 
 				return false; /* partial send */
 			}
@@ -1379,6 +1385,7 @@ send_file(uwsd_client_context_t *cl, uint16_t code, const char *reason, const ch
 			UWSD_HTTP_REPLY_EOH);
 
 		reply_flags |= HTTP_SEND_FILE;
+		cl->http.sendfile_len = s->st_size;
 
 		free(cstype);
 	}
