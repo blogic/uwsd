@@ -1083,7 +1083,7 @@ uwsd_http_reply_buffer_varg(char *buf, size_t buflen, double http_version,
 {
 	enum { BARE, LONG, LLONG, DOUBLE, LDBL, INTMAX, SIZET, PTRDIFF } expect;
 	char *pos = buf, *hname, *hvalue;
-	bool has_ctype = false;
+	bool has_ctype = false, has_clen = false;
 	int len, clen;
 	const char *p;
 	va_list ap1;
@@ -1210,6 +1210,7 @@ uwsd_http_reply_buffer_varg(char *buf, size_t buflen, double http_version,
 			pos += len;
 			buflen -= len;
 			has_ctype |= !strcasecmp(hname, "Content-Type");
+			has_clen |= !strcasecmp(hname, "Content-Length");
 		}
 	}
 
@@ -1233,7 +1234,16 @@ uwsd_http_reply_buffer_varg(char *buf, size_t buflen, double http_version,
 		va_end(ap1);
 	}
 	else {
-		len = snprintf(pos, buflen, "\r\n");
+		/* Emit an explicit zero Content-Length so a keep-alive client can
+		 * delimit the empty body, unless the caller already supplied one or the
+		 * status is defined to never carry a body. */
+		bool bodiless = (code >= 100 && code < 200) || code == 204 || code == 304;
+
+		if (has_clen || bodiless)
+			len = snprintf(pos, buflen, "\r\n");
+		else
+			len = snprintf(pos, buflen, "Content-Length: 0\r\n\r\n");
+
 		pos += len;
 		buflen -= len;
 	}
