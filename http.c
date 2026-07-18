@@ -120,6 +120,16 @@ http_state_reset(uwsd_client_context_t *cl, uwsd_http_state_t state)
 	cl->http.pipebuf[0] = -1;
 	cl->http.pipebuf[1] = -1;
 
+	/* For file and directory actions upstream.ufd.fd is the served file and
+	 * must be released per request; proxy and script actions keep it as their
+	 * upstream socket and manage it separately. */
+	if (cl->action &&
+	    (cl->action->type == UWSD_ACTION_FILE || cl->action->type == UWSD_ACTION_DIRECTORY) &&
+	    cl->upstream.ufd.fd != -1) {
+		close(cl->upstream.ufd.fd);
+		cl->upstream.ufd.fd = -1;
+	}
+
 	/* Transition to initial HTTP parsing state */
 	http_state_transition(cl, state);
 }
