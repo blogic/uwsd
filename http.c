@@ -195,7 +195,7 @@ http_header_parse(uwsd_client_context_t *cl, char *line, size_t len)
 	else {
 		i = strlen(hdr->name);
 		j = strlen(hdr->value);
-		hdr->name = xrealloc(hdr->name, i + 1 + j + 2 + !continuation);
+		hdr->name = xrealloc(hdr->name, i + 1 + j + 2 + !continuation + (e - value));
 		hdr->value = hdr->name + i + 1;
 
 		if (!continuation)
