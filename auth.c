@@ -76,7 +76,7 @@ auth_check_credentials(uwsd_client_context_t *cl, uwsd_auth_t *auth,
 
 		hash = crypt(password, sp->sp_pwdp);
 
-		if (strcmp(hash, sp->sp_pwdp)) {
+		if (!hash || strcmp(hash, sp->sp_pwdp)) {
 			uwsd_http_warn(cl, "Authentication failure: invalid password for user '%s'", username);
 
 			return false;
