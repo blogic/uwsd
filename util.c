@@ -179,6 +179,38 @@ htmlescape(const char *str)
 	return copy;
 }
 
+static bool
+is_url_unreserved(char c)
+{
+	return (c >= 'A' && c <= 'Z') ||
+	       (c >= 'a' && c <= 'z') ||
+	       (c >= '0' && c <= '9') ||
+	       c == '-' || c == '_' || c == '.' || c == '~';
+}
+
+__hidden char *
+urlencode(const char *str)
+{
+	size_t i, len;
+	char *p, *copy;
+
+	for (i = 0, len = 1; str[i]; i++)
+		len += is_url_unreserved(str[i]) ? 1 : 3; /* %XX */
+
+	copy = calloc(1, len);
+
+	if (!copy)
+		return NULL;
+
+	for (i = 0, p = copy; str[i]; i++)
+		if (is_url_unreserved(str[i]))
+			*p++ = str[i];
+		else
+			p += sprintf(p, "%%%02X", (unsigned char)str[i]);
+
+	return copy;
+}
+
 __hidden char *
 pathclean(char *path, ssize_t len)
 {

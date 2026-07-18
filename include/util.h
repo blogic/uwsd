@@ -49,6 +49,7 @@ __hidden int strspncmp(const char *, const char *, const char *);
 __hidden int strspncasecmp(const char *, const char *, const char *);
 
 __hidden char *urldecode(const char *);
+__hidden char *urlencode(const char *);
 __hidden char *htmlescape(const char *);
 __hidden char *pathclean(char *, ssize_t);
 __hidden char *pathexpand(const char *, const char *);

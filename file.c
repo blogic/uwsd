@@ -277,22 +277,28 @@ print_entry(FILE *tmp, struct dirent *e,
 	if ((s.st_mode & mode) != mode)
 		return;
 
-	p = htmlescape(e->d_name);
+	char *disp = htmlescape(e->d_name);
+	char *href = urlencode(e->d_name);
 
-	if (!p)
+	if (!disp || !href) {
+		free(disp);
+		free(href);
+
 		return;
+	}
 
 	fprintf(tmp,
 		"<li><strong><a href='%s/%s%s'>%s</a>%s"
 		"</strong><br /><small>modified: %s"
 		"<br />%s - %.02f kbyte<br />"
 		"<br /></small></li>\n",
-		urlpath, p, (mode & S_IXOTH) ? "/" : "",
-		p, (mode & S_IXOTH) ? "/" : "",
+		urlpath, href, (mode & S_IXOTH) ? "/" : "",
+		disp, (mode & S_IXOTH) ? "/" : "",
 		uwsd_file_unix2date(s.st_mtime),
 		type, s.st_size / 1024.0);
 
-	free(p);
+	free(disp);
+	free(href);
 }
 
 static void
