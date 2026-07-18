@@ -1499,11 +1499,12 @@ error500:
 static char *
 find_index_file(uwsd_client_context_t *cl, const char *path, struct stat *s)
 {
+	char *defaults[] = { "index.html", "index.htm", "default.html", "default.htm", NULL };
 	char **candidates = cl->action->data.directory.index_filenames;
 	char *indexfile = NULL;
 
 	if (!candidates)
-		candidates = (char *[]){ "index.html", "index.htm", "default.html", "default.htm", NULL };
+		candidates = defaults;
 
 	while (*candidates) {
 		indexfile = pathexpand(*candidates, path);
