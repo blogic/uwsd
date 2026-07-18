@@ -1360,7 +1360,7 @@ send_file(uwsd_client_context_t *cl, uint16_t code, const char *reason, const ch
 	    uwsd_file_if_modified_since(cl, s) &&
 	    uwsd_file_if_range(cl, s))
 	{
-		snprintf(szbuf, sizeof(szbuf), "%zu", (size_t)s->st_size);
+		snprintf(szbuf, sizeof(szbuf), "%ju", (uintmax_t)s->st_size);
 
 		if (!type || !*type)
 			type = uwsd_file_mime_lookup(path);
