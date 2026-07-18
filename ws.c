@@ -231,8 +231,14 @@ ws_downstream_rx(uwsd_client_context_t *cl)
 		case STATE_WS_PAYLOAD:
 			uwsd_io_getpos(conn)[-1] ^= cl->ws.mask[cl->ws.buflen++ % sizeof(cl->ws.mask)];
 
-			if (cl->ws.buflen == cl->ws.len)
+			if (cl->ws.buflen == cl->ws.len) {
 				ws_state_transition(cl, STATE_WS_COMPLETE);
+
+				/* ws_state_transition() clears buflen, but ws_handle_frame_payload()
+				 * still needs the received length to place the final control frame
+				 * chunk at the correct offset in the aggregation buffer. */
+				cl->ws.buflen = cl->ws.len;
+			}
 
 			break;
 
