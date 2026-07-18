@@ -1342,7 +1342,7 @@ parse_file(int dir, const char *file, struct stat *st)
 static int
 filter_file(const struct dirent *e)
 {
-	char *s = strchr(e->d_name, '.');
+	char *s = strrchr(e->d_name, '.');
 
 	return (strcmp(e->d_name, ".") && strcmp(e->d_name, "..") && s && !strcmp(s, ".conf"));
 }
