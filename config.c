@@ -672,7 +672,7 @@ config_parse_value(const char **input, const config_prop_t *prop, void *base)
 		p = extract_string(input, ";");
 		n = p ? strtol(p, &e, 0) : 0;
 
-		if (!p || e == buf || *e)
+		if (!p || e == p || *e)
 			return parse_error("Expecting number");
 
 		int_ptr(prop, base) = n;
