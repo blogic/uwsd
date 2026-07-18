@@ -1988,7 +1988,14 @@ handle_request(struct uloop_fd *ufd, unsigned int events)
 
 		case PARSE_LEN2:
 			conn->buf.len |= (uint16_t)buf[i++];
-			assert(conn->buf.len <= sizeof(conn->buf.data));
+
+			if (conn->buf.len > sizeof(conn->buf.data)) {
+				fprintf(stderr, "Oversized backend message (%u bytes), closing connection\n",
+					(unsigned)conn->buf.len);
+				script_conn_close(conn, 0, NULL);
+
+				return;
+			}
 
 			// complete payload already in buffer
 			if (i + conn->buf.len <= rlen) {
