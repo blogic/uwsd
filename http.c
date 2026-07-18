@@ -1354,11 +1354,11 @@ send_file(uwsd_client_context_t *cl, uint16_t code, const char *reason, const ch
 	if (cl->upstream.ufd.fd == -1)
 		return -errno;
 
-	if (uwsd_file_if_range(cl, s) &&
-	    uwsd_file_if_match(cl, s) &&
-	    uwsd_file_if_modified_since(cl, s) &&
+	if (uwsd_file_if_match(cl, s) &&
+	    uwsd_file_if_unmodified_since(cl, s) &&
 	    uwsd_file_if_none_match(cl, s) &&
-	    uwsd_file_if_unmodified_since(cl, s))
+	    uwsd_file_if_modified_since(cl, s) &&
+	    uwsd_file_if_range(cl, s))
 	{
 		snprintf(szbuf, sizeof(szbuf), "%zu", (size_t)s->st_size);
 

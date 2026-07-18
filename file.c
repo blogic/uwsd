@@ -131,6 +131,10 @@ uwsd_file_if_modified_since(uwsd_client_context_t *cl, struct stat *s)
 	if (!hdr)
 		return true;
 
+	/* If-None-Match takes precedence; ignore If-Modified-Since when present. */
+	if (uwsd_http_header_lookup(cl, "If-None-Match"))
+		return true;
+
 	if (uwsd_file_date2unix(hdr) >= s->st_mtime) {
 		uwsd_http_reply(cl, 304, "Not Modified",
 			UWSD_HTTP_REPLY_EMPTY,
@@ -182,6 +186,10 @@ __hidden bool
 uwsd_file_if_unmodified_since(uwsd_client_context_t *cl, struct stat *s)
 {
 	char *hdr = uwsd_http_header_lookup(cl, "If-Unmodified-Since");
+
+	/* If-Match takes precedence; ignore If-Unmodified-Since when present. */
+	if (uwsd_http_header_lookup(cl, "If-Match"))
+		return true;
 
 	if (hdr && uwsd_file_date2unix(hdr) <= s->st_mtime) {
 		uwsd_http_reply(cl, 412, "Precondition Failed",
