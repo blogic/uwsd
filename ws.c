@@ -252,7 +252,7 @@ ws_downstream_tx_iov(uwsd_client_context_t *cl)
 		return false; /* error or partial send */
 
 	/* we completely sent a close message, tear down connection */
-	if (cl->tx[1].iov_base && cl->ws.buf.frameheader.hdr.opcode == OPCODE_CLOSE) {
+	if (cl->tx[1].iov_base && cl->ws.txframe.hdr.opcode == OPCODE_CLOSE) {
 		if (cl->ws.error.code)
 			ws_terminate(cl, cl->ws.error.code, "%s", cl->ws.error.msg ? cl->ws.error.msg : "");
 		else
@@ -271,29 +271,29 @@ ws_downstream_tx(uwsd_client_context_t *cl, uwsd_ws_opcode_t opcode, bool add_he
 	size_t hlen = 0;
 
 	if (add_header) {
-		memset(&cl->ws.buf.frameheader, 0, sizeof(cl->ws.buf.frameheader));
+		memset(&cl->ws.txframe, 0, sizeof(cl->ws.txframe));
 
-		cl->ws.buf.frameheader.hdr.opcode = opcode;
-		cl->ws.buf.frameheader.hdr.fin = true;
+		cl->ws.txframe.hdr.opcode = opcode;
+		cl->ws.txframe.hdr.fin = true;
 
 		if (len > 0xffff) {
-			cl->ws.buf.frameheader.hdr.len = 127;
-			cl->ws.buf.frameheader.ext.len64 = htobe64(len);
+			cl->ws.txframe.hdr.len = 127;
+			cl->ws.txframe.ext.len64 = htobe64(len);
 			hlen = sizeof(ws_frame_header_t) + sizeof(uint64_t);
 		}
 		else if (len > 0x7d) {
-			cl->ws.buf.frameheader.hdr.len = 126;
-			cl->ws.buf.frameheader.ext.len16 = htobe16(len);
+			cl->ws.txframe.hdr.len = 126;
+			cl->ws.txframe.ext.len16 = htobe16(len);
 			hlen = sizeof(ws_frame_header_t) + sizeof(uint16_t);
 		}
 		else {
-			cl->ws.buf.frameheader.hdr.len = len;
+			cl->ws.txframe.hdr.len = len;
 			hlen = sizeof(ws_frame_header_t);
 		}
 	}
 
 	uwsd_iov_put(cl,
-		&cl->ws.buf.frameheader, hlen,
+		&cl->ws.txframe, hlen,
 		data, len);
 
 	errno = 0;

@@ -92,6 +92,13 @@ typedef struct uwsd_client_context {
 			uint8_t mask[4];
 			char data[125];
 		} buf;
+		struct __attribute__((packed)) {
+			ws_frame_header_t hdr;
+			union {
+				uint16_t len16;
+				uint64_t len64;
+			} ext;
+		} txframe;
 		struct {
 			uint16_t code;
 			char *msg;
