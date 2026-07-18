@@ -138,7 +138,7 @@ client_free_all(void)
 		if (cl->protocol == UWSD_PROTOCOL_WS) {
 			uwsd_ws_connection_close(cl,
 				cl->ws.error.code ? cl->ws.error.code : STATUS_GOING_AWAY,
-				cl->ws.error.msg ? cl->ws.error.msg : "Server shutting down");
+				"%s", cl->ws.error.msg ? cl->ws.error.msg : "Server shutting down");
 		}
 		else {
 			client_free(cl, "server shutdown");
