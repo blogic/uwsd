@@ -215,8 +215,8 @@ uwsd_file_if_unmodified_since(uwsd_client_context_t *cl, struct stat *s)
 static int
 dirent_cmp(const struct dirent **a, const struct dirent **b)
 {
-	bool dir_a = !!((*a)->d_type & DT_DIR);
-	bool dir_b = !!((*b)->d_type & DT_DIR);
+	bool dir_a = ((*a)->d_type == DT_DIR);
+	bool dir_b = ((*b)->d_type == DT_DIR);
 
 	/* directories first */
 	if (dir_a != dir_b)
