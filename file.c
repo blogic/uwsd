@@ -191,7 +191,7 @@ uwsd_file_if_unmodified_since(uwsd_client_context_t *cl, struct stat *s)
 	if (uwsd_http_header_lookup(cl, "If-Match"))
 		return true;
 
-	if (hdr && uwsd_file_date2unix(hdr) <= s->st_mtime) {
+	if (hdr && uwsd_file_date2unix(hdr) < s->st_mtime) {
 		uwsd_http_reply(cl, 412, "Precondition Failed",
 			UWSD_HTTP_REPLY_EMPTY,
 			UWSD_HTTP_REPLY_EOH);
