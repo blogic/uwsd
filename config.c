@@ -683,7 +683,7 @@ config_parse_value(const char **input, const config_prop_t *prop, void *base)
 		e = extract_string(input, ";");
 
 		for (n = 0, p = prop->data.values[0]; p; p = prop->data.values[++n]) {
-			if (e && *e && !strncmp(e, p, strlen(e))) {
+			if (e && *e && !strcmp(e, p)) {
 				int_ptr(prop, base) = n;
 				break;
 			}
