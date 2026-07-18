@@ -1333,15 +1333,16 @@ parse_file(int dir, const char *file, struct stat *st)
 	close(fd);
 
 	off = (const char *)input;
+	skipws(&off);
 
-	do {
+	while (*off != '\0') {
 		if (!config_parse_property(&off, &toplevel_spec, config)) {
 			print_error_pos(file, input, off);
 			free(input);
 
 			return false;
 		}
-	} while (*off != '\0');
+	}
 
 	free(input);
 
