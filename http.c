@@ -1914,6 +1914,9 @@ uwsd_http_state_upstream_send(uwsd_client_context_t *cl, uwsd_connection_state_t
 		    !uwsd_iov_tx(&cl->upstream, STATE_CONN_UPSTREAM_SEND))
 			return; /* failure or partial send */
 
+		if (cl->http.state == STATE_HTTP_BODY_CLOSE)
+			break;
+
 		if (!uwsd_io_pending(&cl->downstream) &&
 		    cl->http.state != STATE_HTTP_CHUNK_DONE &&
 		    cl->http.state != STATE_HTTP_REQUEST_DONE)
