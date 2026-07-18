@@ -67,7 +67,7 @@ static int
 servername_cb(SSL *ssl, int *al, void *arg)
 {
 	const char *hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-	uwsd_client_context_t *cl = arg;
+	uwsd_client_context_t *cl = SSL_get_app_data(ssl);
 	SSL_CTX *tls_ctx;
 
 	if (hostname) {
@@ -76,7 +76,6 @@ servername_cb(SSL *ssl, int *al, void *arg)
 #ifndef NDEBUG
 		X509_NAME *n = X509_get_subject_name(SSL_CTX_get0_certificate(tls_ctx));
 		X509_NAME *i = X509_get_issuer_name(SSL_CTX_get0_certificate(tls_ctx));
-		uwsd_client_context_t *cl = arg;
 
 		uwsd_ssl_debug(cl, "SNI: selecting cert '%s' by '%s' for server name '%s'",
 			n ? ssl_get_subject_cn(n) : NULL,
@@ -626,13 +625,13 @@ uwsd_ssl_init(uwsd_client_context_t *cl)
 #endif
 
 	SSL_CTX_set_tlsext_servername_callback(tls_ctx, servername_cb);
-	SSL_CTX_set_tlsext_servername_arg(tls_ctx, cl);
 
 	ssl = SSL_new(tls_ctx);
 
 	if (!ssl)
 		goto err;
 
+	SSL_set_app_data(ssl, cl);
 	SSL_set_fd(ssl, cl->downstream.ufd.fd);
 
 	switch (cl->listener->ssl->verify_peer) {
