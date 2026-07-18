@@ -349,8 +349,9 @@ http_determine_message_length(uwsd_client_context_t *cl, bool request)
 	else if (cl->http_version <= 0x0100 && cl->request_method == HTTP_POST) {
 		uwsd_http_error_return(cl, 411, "Length Required", "Content-Length required\n");
 	}
-	else if ((!request && http_may_have_body(cl->http_status)) &&
-	         (cl->http_version <= 0x0100 || cl->action->type == UWSD_ACTION_SCRIPT)) {
+	else if (!request && http_may_have_body(cl->http_status)) {
+		/* A response with neither Content-Length nor Transfer-Encoding is
+		 * delimited by connection close (RFC 9112 6.3), so read until EOF. */
 		http_state_transition(cl, STATE_HTTP_BODY_UNTIL_EOF);
 	}
 	else {
