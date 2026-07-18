@@ -1089,6 +1089,9 @@ copy_sendfile(int in_fd, script_connection_t *conn, ssize_t len)
 		if (wlen < 0)
 			return -1;
 
+		if (wlen == 0)
+			break; /* input reached EOF before the expected length */
+
 		len -= wlen;
 		copied += wlen;
 	}
