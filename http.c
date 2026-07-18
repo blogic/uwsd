@@ -375,6 +375,12 @@ http_chunked_recv(uwsd_client_context_t *cl, uwsd_connection_t *conn)
 		switch (cl->http.state) {
 		case STATE_HTTP_CHUNK_HEADER:
 			if (isxdigit(ch)) {
+				if (cl->request_length > (((size_t)-1) - hex(ch)) / 16) {
+					client_free(cl, "chunk size too large");
+
+					return false;
+				}
+
 				cl->request_length = cl->request_length * 16 + hex(ch);
 			}
 			else if (ch == ';') {
