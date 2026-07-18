@@ -1373,6 +1373,9 @@ uwsd_config_parse(const char *path)
 	config = config_alloc_object(&toplevel_spec, NULL);
 
 	if (S_ISDIR(st.st_mode)) {
+		bool ok = true;
+		int i;
+
 		fd = open(path, O_RDONLY);
 
 		if (fd == -1) {
@@ -1390,18 +1393,21 @@ uwsd_config_parse(const char *path)
 			return false;
 		}
 
-		for (; nfiles; files++, nfiles--) {
-			if (fstatat(fd, files[0]->d_name, &st, 0) == -1) {
-				sys_perror("Unable to stat() '%s'", files[0]->d_name);
-
-				continue;
-			}
-
-			if (!parse_file(fd, files[0]->d_name, &st))
-				goto error;
+		for (i = 0; ok && i < nfiles; i++) {
+			if (fstatat(fd, files[i]->d_name, &st, 0) == -1)
+				sys_perror("Unable to stat() '%s'", files[i]->d_name);
+			else if (!parse_file(fd, files[i]->d_name, &st))
+				ok = false;
 		}
 
+		for (i = 0; i < nfiles; i++)
+			free(files[i]);
+
+		free(files);
 		close(fd);
+
+		if (!ok)
+			goto error;
 	}
 	else {
 		if (!parse_file(AT_FDCWD, path, &st))
