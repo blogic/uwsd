@@ -337,7 +337,7 @@ ssl_load_pem_files(SSL_CTX *ssl_ctx, FILE *pkey_fp, const char *pkey_path,
 		return false;
 	}
 
-	while (*extra_certs) {
+	while (extra_certs && *extra_certs) {
 		extra_fp = fopen(*extra_certs, "r");
 
 		if (!extra_fp) {
