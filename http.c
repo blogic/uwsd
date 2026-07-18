@@ -767,6 +767,12 @@ http_response_recv(uwsd_client_context_t *cl)
 
 		return http_handle_body_data(cl, conn, "", 0);
 
+	case STATE_HTTP_BODY_CLOSE:
+		uwsd_http_debug(cl, "Received %zd bytes after response message",
+			uwsd_io_pending(conn));
+
+		return true;
+
 	default:
 		break;
 	}
