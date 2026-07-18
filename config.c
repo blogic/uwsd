@@ -540,7 +540,7 @@ extract_string(const char **input, const char *separator)
 	}
 	else {
 		for (output = buf; !strchr(separator, **input); (*input)++) {
-			if (output - buf == sizeof(buf)) {
+			if (output - buf == sizeof(buf) - 1) {
 				uwsd_log_err(NULL, "String value too long");
 
 				return NULL;
