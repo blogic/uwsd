@@ -2194,6 +2194,10 @@ uwsd_http_state_downstream_send(uwsd_client_context_t *cl, uwsd_connection_state
 			cl->downstream.ufd.fd, NULL,
 			cl->http.pipebuf_len, SPLICE_F_NONBLOCK);
 
+		/* downstream send buffer full: retry once the socket is writable again */
+		if (wlen < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+			return;
+
 		/* unrecoverable send error */
 		if (wlen < 0)
 			return client_free(cl, "downstream send error: %m");
