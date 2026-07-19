@@ -244,6 +244,12 @@ pathclean(char *path, ssize_t len)
 				for (r -= (r > s); r >= s && *r != '/'; r--)
 					;
 
+				/* a component with no preceding slash (a non-absolute path)
+				 * leaves r one before the buffer; clamp to the start so the
+				 * next write does not underflow */
+				if (r < s)
+					r = s;
+
 				continue;
 			}
 
