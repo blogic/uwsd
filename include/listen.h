@@ -117,6 +117,8 @@ typedef struct {
 	char *hostname;
 	uint16_t port;
 	struct uloop_fd ufd;
+	struct uloop_timeout retry;
+	int retry_count;
 	struct list_head matches;
 	struct list_head auth;
 	int request_timeout, transfer_timeout, idle_timeout;

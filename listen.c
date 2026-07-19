@@ -77,6 +77,36 @@ accept_cb(struct uloop_fd *ufd, unsigned int events)
 	client_create(fd, listen, (struct sockaddr *)&sa, alen);
 }
 
+#define LISTEN_RETRY_INTERVAL 1000
+#define LISTEN_RETRY_MAX      30
+
+static void
+listen_retry_cb(struct uloop_timeout *t)
+{
+	uwsd_listen_t *listen = container_of(t, uwsd_listen_t, retry);
+
+	listen->ufd.fd = usock(
+		USOCK_SERVER | USOCK_NONBLOCK | USOCK_TCP,
+		listen->hostname, usock_port(listen->port));
+
+	if (listen->ufd.fd != -1) {
+		uloop_fd_add(&listen->ufd, ULOOP_READ);
+		uwsd_log_info(NULL, "Listening on %s:%hu (after %d retries)",
+			listen->hostname, listen->port, listen->retry_count);
+
+		return;
+	}
+
+	if (++listen->retry_count >= LISTEN_RETRY_MAX) {
+		uwsd_log_err(NULL, "Unable to listen on %s:%hu after %d retries: %m",
+			listen->hostname, listen->port, listen->retry_count);
+
+		return;
+	}
+
+	uloop_timeout_set(&listen->retry, LISTEN_RETRY_INTERVAL);
+}
+
 __hidden bool
 uwsd_listen_init(uwsd_listen_t *listen, const char *hostname, uint16_t port)
 {
@@ -89,10 +119,14 @@ uwsd_listen_init(uwsd_listen_t *listen, const char *hostname, uint16_t port)
 		listen->hostname, usock_port(listen->port));
 
 	if (listen->ufd.fd == -1) {
-		uwsd_log_err(NULL, "Unable to listen on %s:%hu: %m",
+		uwsd_log_info(NULL, "Unable to listen on %s:%hu: %m (retrying...)",
 			listen->hostname, listen->port);
 
-		return false;
+		listen->retry_count = 0;
+		listen->retry.cb = listen_retry_cb;
+		uloop_timeout_set(&listen->retry, LISTEN_RETRY_INTERVAL);
+
+		return true;
 	}
 
 	uloop_fd_add(&listen->ufd, ULOOP_READ);
