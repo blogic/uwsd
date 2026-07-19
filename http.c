@@ -149,10 +149,13 @@ http_header_parse(uwsd_client_context_t *cl, char *line, size_t len)
 		if (p == name || p == e || *p != ':')
 			return false;
 
-		/* Header name already seen? */
+		/* Header name already seen? Match on the stored name's true length
+		 * first: an embedded NUL in the incoming name would otherwise let
+		 * strncasecmp stop early and the '\0' index below read past the stored
+		 * allocation. */
 		for (i = 0; i < cl->http_num_headers; i++) {
-			if (!strncasecmp(cl->http_headers[i].name, name, p - name) &&
-			    cl->http_headers[i].name[p - name] == '\0') {
+			if (strlen(cl->http_headers[i].name) == (size_t)(p - name) &&
+			    !strncasecmp(cl->http_headers[i].name, name, p - name)) {
 				hdr = &cl->http_headers[i];
 				break;
 			}
