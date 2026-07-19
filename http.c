@@ -175,8 +175,11 @@ http_header_parse(uwsd_client_context_t *cl, char *line, size_t len)
 		continuation = false;
 	}
 
-	/* Skip leading white space in value */
-	for (; *value == ' ' || *value == '\t'; value++)
+	/* Skip leading white space in value. The bound on 'e' matters: the line is
+	 * not NUL-terminated and shares the reused head accumulator, so an all-white
+	 * space value would otherwise walk past 'e' into stale bytes and make
+	 * (e - value) negative in the copies below. */
+	for (; value < e && (*value == ' ' || *value == '\t'); value++)
 		;
 
 	/* Skip trailing white space in value */
