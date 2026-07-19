@@ -31,7 +31,7 @@
 
 
 typedef struct {
-	uint8_t data[16384];
+	uint8_t data[65536];  /* 64KB buffer for fragmented sends */
 	uint8_t *pos, *end;
 } uwsd_buffer_t;
 
