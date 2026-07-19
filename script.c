@@ -2376,83 +2376,139 @@ uwsd_script_init(uwsd_action_t *action, const char *path)
 }
 
 
-static size_t
-push_tlv(struct iovec **iov, volatile uint16_t *type, volatile uint16_t *len, const void *data)
+/* Upper bound on a single serialized worker message. The largest legitimate
+ * message is a connect/request built from the 64KB header buffer, so this stays
+ * well above it while still bounding a runaway allocation. */
+#define UWSD_SCRIPT_TX_MAX (256 * 1024)
+
+static void
+script_tx_reset(uwsd_client_context_t *cl)
 {
-	(*iov)->iov_base = (void *)type;
-	(*iov)->iov_len = sizeof(*type);
-	(*iov)++;
-
-	(*iov)->iov_base = (void *)len;
-	(*iov)->iov_len = sizeof(*len);
-	(*iov)++;
-
-	(*iov)->iov_base = (void *)data;
-	(*iov)->iov_len = ntohs(*len);
-
-	return sizeof(*type) + sizeof(*len) + ((*iov)++)->iov_len;
+	cl->script_tx.len = 0;
+	cl->script_tx.pos = 0;
 }
 
-#define static_tlv(_iovp, _type, _len, _data) \
-	push_tlv(_iovp, &((volatile uint16_t){ htons(_type) }), &((volatile uint16_t){ htons(_len) }), _data)
+/* Append one TLV (type, length, payload) to the pending worker message buffer. */
+static bool
+script_tx_append(uwsd_client_context_t *cl, uint16_t type, size_t len, const void *data)
+{
+	size_t need = cl->script_tx.len + sizeof(uint16_t) * 2 + len;
+	uint16_t hdr[2];
 
-#define single_tlv(_iov, _type, _len, _data) \
-	static_tlv(&((struct iovec *){ _iov }), _type, _len, _data)
+	if (len > 0xffff || need > UWSD_SCRIPT_TX_MAX)
+		return false;
 
-__hidden bool
+	if (need > cl->script_tx.cap) {
+		size_t cap = cl->script_tx.cap ? cl->script_tx.cap : 4096;
+		uint8_t *buf;
+
+		while (cap < need)
+			cap *= 2;
+
+		buf = realloc(cl->script_tx.buf, cap);
+
+		if (!buf)
+			return false;
+
+		cl->script_tx.buf = buf;
+		cl->script_tx.cap = cap;
+	}
+
+	hdr[0] = htons(type);
+	hdr[1] = htons((uint16_t)len);
+
+	memcpy(cl->script_tx.buf + cl->script_tx.len, hdr, sizeof(hdr));
+	memcpy(cl->script_tx.buf + cl->script_tx.len + sizeof(hdr), data, len);
+
+	cl->script_tx.len = need;
+
+	return true;
+}
+
+/* Write as much of the pending worker message as the socket accepts. */
+__hidden uwsd_script_tx_t
+uwsd_script_flush(uwsd_client_context_t *cl)
+{
+	while (cl->script_tx.pos < cl->script_tx.len) {
+		ssize_t n = write(cl->upstream.ufd.fd,
+			cl->script_tx.buf + cl->script_tx.pos,
+			cl->script_tx.len - cl->script_tx.pos);
+
+		if (n > 0) {
+			cl->script_tx.pos += n;
+			continue;
+		}
+
+		if (n < 0 && errno == EINTR)
+			continue;
+
+		if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+			return UWSD_SCRIPT_TX_PENDING;
+
+		return UWSD_SCRIPT_TX_ERROR;
+	}
+
+	script_tx_reset(cl);
+
+	return UWSD_SCRIPT_TX_DONE;
+}
+
+__hidden uwsd_script_tx_t
 uwsd_script_connect(uwsd_client_context_t *cl, const char *acceptkey)
 {
-	uint16_t tv[cl->http_num_headers], lv[cl->http_num_headers];
-	struct iovec iov[(9 + cl->http_num_headers) * 3];
-	struct iovec *iop = iov;
-	ssize_t total = 0;
 	const char *s;
 	size_t i;
 
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_PEER_ADDR, sizeof(cl->sa_peer.in6), &cl->sa_peer.in6);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_LOCAL_ADDR, sizeof(cl->sa_local.in6), &cl->sa_local.in6);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_VERSION, sizeof(cl->http_version), &cl->http_version);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_METHOD, sizeof(cl->request_method), &cl->request_method);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_URI, strlen(cl->request_uri), cl->request_uri);
+	script_tx_reset(cl);
 
+	if (!script_tx_append(cl, UWSD_SCRIPT_DATA_PEER_ADDR, sizeof(cl->sa_peer.in6), &cl->sa_peer.in6) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_LOCAL_ADDR, sizeof(cl->sa_local.in6), &cl->sa_local.in6) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_VERSION, sizeof(cl->http_version), &cl->http_version) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_METHOD, sizeof(cl->request_method), &cl->request_method) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_URI, strlen(cl->request_uri), cl->request_uri))
+		return UWSD_SCRIPT_TX_ERROR;
+
+	/* header name and value are stored contiguously as "name\0value\0" */
 	for (i = 0; i < cl->http_num_headers; i++) {
-		tv[i] = htons(UWSD_SCRIPT_DATA_HTTP_HEADER);
-		lv[i] = htons(strlen(cl->http_headers[i].name) + strlen(cl->http_headers[i].value) + 2);
-		total += push_tlv(&iop, &tv[i], &lv[i], cl->http_headers[i].name);
+		size_t hlen = strlen(cl->http_headers[i].name) + strlen(cl->http_headers[i].value) + 2;
+
+		if (!script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_HEADER, hlen, cl->http_headers[i].name))
+			return UWSD_SCRIPT_TX_ERROR;
 	}
 
 	if (cl->listener->ssl) {
 		s = uwsd_ssl_cipher_name(&cl->downstream);
 
-		if (s)
-			total += static_tlv(&iop, UWSD_SCRIPT_DATA_SSL_CIPHER, strlen(s), s);
+		if (s && !script_tx_append(cl, UWSD_SCRIPT_DATA_SSL_CIPHER, strlen(s), s))
+			return UWSD_SCRIPT_TX_ERROR;
 
 		s = uwsd_ssl_peer_issuer_name(&cl->downstream);
 
-		if (s)
-			total += static_tlv(&iop, UWSD_SCRIPT_DATA_X509_PEER_ISSUER, strlen(s), s);
+		if (s && !script_tx_append(cl, UWSD_SCRIPT_DATA_X509_PEER_ISSUER, strlen(s), s))
+			return UWSD_SCRIPT_TX_ERROR;
 
 		s = uwsd_ssl_peer_subject_name(&cl->downstream);
 
-		if (s)
-			total += static_tlv(&iop, UWSD_SCRIPT_DATA_X509_PEER_SUBJECT, strlen(s), s);
+		if (s && !script_tx_append(cl, UWSD_SCRIPT_DATA_X509_PEER_SUBJECT, strlen(s), s))
+			return UWSD_SCRIPT_TX_ERROR;
 	}
 
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_WS_INIT, strlen(acceptkey) + 1, acceptkey);
+	if (!script_tx_append(cl, UWSD_SCRIPT_DATA_WS_INIT, strlen(acceptkey) + 1, acceptkey))
+		return UWSD_SCRIPT_TX_ERROR;
 
-	return (writev(cl->upstream.ufd.fd, iov, iop - iov) == total);
+	return uwsd_script_flush(cl);
 }
 
 
-__hidden bool
+__hidden uwsd_script_tx_t
 uwsd_script_send(uwsd_client_context_t *cl, const void *data, size_t len)
 {
-	struct iovec iov[3];
 	const size_t chunk_size = sizeof(((script_connection_t *)NULL)->buf.data);
 	const uint8_t *ptr = data;
 	size_t remaining = len;
-	ssize_t total;
 	uint16_t type;
+
+	script_tx_reset(cl);
 
 	do {
 		size_t chunk = size_t_min(remaining, chunk_size);
@@ -2464,30 +2520,29 @@ uwsd_script_send(uwsd_client_context_t *cl, const void *data, size_t len)
 		else
 			type = UWSD_SCRIPT_DATA_WS_EOF;
 
-		total = single_tlv(iov, type, chunk, ptr);
-
-		if (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) != total)
-			return false;
+		if (!script_tx_append(cl, type, chunk, ptr))
+			return UWSD_SCRIPT_TX_ERROR;
 
 		ptr += chunk;
 		remaining -= chunk;
 	} while (remaining > 0);
 
-	return true;
+	return uwsd_script_flush(cl);
 }
 
 __hidden void
 uwsd_script_close(uwsd_client_context_t *cl)
 {
-	struct iovec iov[3];
 	char statusbuf[125];
-	int statuslen = 2;
+	int statuslen;
 
 	if (!cl->action || cl->action->type != UWSD_ACTION_SCRIPT)
 		return;
 
+	script_tx_reset(cl);
+
 	if (cl->protocol == UWSD_PROTOCOL_HTTP) {
-		single_tlv(iov, UWSD_SCRIPT_DATA_HTTP_EOF, 0, "");
+		script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_EOF, 0, "");
 	}
 	else {
 		statuslen = snprintf(statusbuf, sizeof(statusbuf), "%c%c%s",
@@ -2495,10 +2550,11 @@ uwsd_script_close(uwsd_client_context_t *cl)
 			(cl->ws.error.code ? cl->ws.error.code : 1000) % 256,
 			cl->ws.error.msg ? cl->ws.error.msg : "");
 
-		single_tlv(iov, UWSD_SCRIPT_DATA_WS_EOF, statuslen + 1, statusbuf);
+		script_tx_append(cl, UWSD_SCRIPT_DATA_WS_EOF, statuslen + 1, statusbuf);
 	}
 
-	writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov));
+	/* best effort: the connection is being torn down, so a short write is fine */
+	uwsd_script_flush(cl);
 }
 
 __hidden void
@@ -2515,67 +2571,66 @@ uwsd_script_free(uwsd_action_t *action)
 	free(action->data.script.path);
 }
 
-__hidden bool
+__hidden uwsd_script_tx_t
 uwsd_script_request(uwsd_client_context_t *cl)
 {
-	uint16_t tv[cl->http_num_headers], lv[cl->http_num_headers];
-	struct iovec iov[(7 + cl->http_num_headers) * 3];
-	struct iovec *iop = iov;
-	ssize_t total = 0;
 	const char *s;
 	size_t i;
 
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_PEER_ADDR, sizeof(cl->sa_peer.in6), &cl->sa_peer.in6);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_LOCAL_ADDR, sizeof(cl->sa_local.in6), &cl->sa_local.in6);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_VERSION, sizeof(cl->http_version), &cl->http_version);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_METHOD, sizeof(cl->request_method), &cl->request_method);
-	total += static_tlv(&iop, UWSD_SCRIPT_DATA_HTTP_URI, strlen(cl->request_uri), cl->request_uri);
+	script_tx_reset(cl);
+
+	if (!script_tx_append(cl, UWSD_SCRIPT_DATA_PEER_ADDR, sizeof(cl->sa_peer.in6), &cl->sa_peer.in6) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_LOCAL_ADDR, sizeof(cl->sa_local.in6), &cl->sa_local.in6) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_VERSION, sizeof(cl->http_version), &cl->http_version) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_METHOD, sizeof(cl->request_method), &cl->request_method) ||
+	    !script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_URI, strlen(cl->request_uri), cl->request_uri))
+		return UWSD_SCRIPT_TX_ERROR;
 
 	for (i = 0; i < cl->http_num_headers; i++) {
-		tv[i] = htons(UWSD_SCRIPT_DATA_HTTP_HEADER);
-		lv[i] = htons(strlen(cl->http_headers[i].name) + strlen(cl->http_headers[i].value) + 2);
-		total += push_tlv(&iop, &tv[i], &lv[i], cl->http_headers[i].name);
+		size_t hlen = strlen(cl->http_headers[i].name) + strlen(cl->http_headers[i].value) + 2;
+
+		if (!script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_HEADER, hlen, cl->http_headers[i].name))
+			return UWSD_SCRIPT_TX_ERROR;
 	}
 
 	if (cl->listener->ssl) {
 		s = uwsd_ssl_peer_issuer_name(&cl->downstream);
 
-		if (s)
-			total += static_tlv(&iop, UWSD_SCRIPT_DATA_X509_PEER_ISSUER, strlen(s), s);
+		if (s && !script_tx_append(cl, UWSD_SCRIPT_DATA_X509_PEER_ISSUER, strlen(s), s))
+			return UWSD_SCRIPT_TX_ERROR;
 
 		s = uwsd_ssl_peer_subject_name(&cl->downstream);
 
-		if (s)
-			total += static_tlv(&iop, UWSD_SCRIPT_DATA_X509_PEER_SUBJECT, strlen(s), s);
+		if (s && !script_tx_append(cl, UWSD_SCRIPT_DATA_X509_PEER_SUBJECT, strlen(s), s))
+			return UWSD_SCRIPT_TX_ERROR;
 	}
 
-	return (writev(cl->upstream.ufd.fd, iov, iop - iov) == total);
+	return uwsd_script_flush(cl);
 }
 
-__hidden bool
+__hidden uwsd_script_tx_t
 uwsd_script_bodydata(uwsd_client_context_t *cl, const void *data, size_t len)
 {
-	struct iovec iov[3];
 	const size_t chunk_size = sizeof(((script_connection_t *)NULL)->buf.data);
 	const uint8_t *ptr = data;
 	size_t remaining = len;
-	ssize_t total;
+
+	script_tx_reset(cl);
 
 	while (remaining > chunk_size) {
-		total = single_tlv(iov, UWSD_SCRIPT_DATA_HTTP_DATA, chunk_size, ptr);
-
-		if (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) != total)
-			return false;
+		if (!script_tx_append(cl, UWSD_SCRIPT_DATA_HTTP_DATA, chunk_size, ptr))
+			return UWSD_SCRIPT_TX_ERROR;
 
 		ptr += chunk_size;
 		remaining -= chunk_size;
 	}
 
-	total = single_tlv(iov,
-		remaining ? UWSD_SCRIPT_DATA_HTTP_DATA : UWSD_SCRIPT_DATA_HTTP_EOF,
-		remaining, ptr);
+	if (!script_tx_append(cl,
+	                      remaining ? UWSD_SCRIPT_DATA_HTTP_DATA : UWSD_SCRIPT_DATA_HTTP_EOF,
+	                      remaining, ptr))
+		return UWSD_SCRIPT_TX_ERROR;
 
-	return (writev(cl->upstream.ufd.fd, iov, ARRAY_SIZE(iov)) == total);
+	return uwsd_script_flush(cl);
 }
 
 __hidden int

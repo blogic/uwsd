@@ -437,10 +437,16 @@ uwsd_ws_state_upstream_connected(uwsd_client_context_t *cl, uwsd_connection_stat
 	/* NB: Script workers will deal with the HTTP upgrade reply themselves as
 	 * it depends on subprotocol accepted by the onConnect() callback. */
 	if (cl->action->type == UWSD_ACTION_SCRIPT) {
-		if (!uwsd_script_connect(cl, digest))
-			return;
+		switch (uwsd_script_connect(cl, digest)) {
+		case UWSD_SCRIPT_TX_ERROR:
+			return client_free(cl, "Error sending connect message to worker: %m");
 
-		uwsd_state_transition(cl, STATE_CONN_WS_IDLE);
+		case UWSD_SCRIPT_TX_PENDING:
+			return uwsd_state_transition(cl, STATE_CONN_WS_UPSTREAM_SEND);
+
+		case UWSD_SCRIPT_TX_DONE:
+			return uwsd_state_transition(cl, STATE_CONN_WS_IDLE);
+		}
 	}
 	else {
 		/* Format handshake reply */
@@ -479,11 +485,28 @@ ws_handle_frame_payload(uwsd_client_context_t *cl)
 	/* for other frames, forward payload upstream */
 	default:
 		if (cl->action->type == UWSD_ACTION_SCRIPT) {
-			if (!uwsd_script_send(cl, cl->tx[0].iov_base, cl->tx[0].iov_len))
-				return false; // XXX: switch to upstream TX mode on partial write
+			uwsd_script_tx_t st = uwsd_script_send(cl, cl->tx[0].iov_base, cl->tx[0].iov_len);
 
+			/* the segment is captured in the worker send buffer either way */
 			cl->tx[0].iov_base += cl->tx[0].iov_len;
 			cl->tx[0].iov_len = 0;
+
+			if (st == UWSD_SCRIPT_TX_ERROR) {
+				client_free(cl, "Error sending data to worker: %m");
+
+				return false;
+			}
+
+			if (st == UWSD_SCRIPT_TX_PENDING) {
+				/* a completed frame is fully captured, so ready the parser for
+				 * the next frame; a partial frame keeps its payload state */
+				if (cl->ws.state == STATE_WS_COMPLETE)
+					ws_state_transition(cl, STATE_WS_HEADER);
+
+				uwsd_state_transition(cl, STATE_CONN_WS_UPSTREAM_SEND);
+
+				return false;
+			}
 
 			return true;
 		}
@@ -520,6 +543,20 @@ ws_handle_frame_completion(uwsd_client_context_t *cl, void *data, size_t len)
 static void
 uwsd_ws_state_upstream_send(uwsd_client_context_t *cl, uwsd_connection_state_t state)
 {
+	/* script workers receive a serialized TLV message; resume flushing it */
+	if (cl->action->type == UWSD_ACTION_SCRIPT) {
+		switch (uwsd_script_flush(cl)) {
+		case UWSD_SCRIPT_TX_PENDING:
+			return;
+
+		case UWSD_SCRIPT_TX_ERROR:
+			return client_free(cl, "Error sending data to worker: %m");
+
+		case UWSD_SCRIPT_TX_DONE:
+			return uwsd_state_transition(cl, STATE_CONN_WS_IDLE);
+		}
+	}
+
 	if (!uwsd_iov_tx(&cl->upstream, STATE_CONN_WS_UPSTREAM_SEND))
 		return; /* partial write, connection closure or error */
 

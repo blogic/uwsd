@@ -124,6 +124,7 @@ client_free(uwsd_client_context_t *cl, const char *reason, ...)
 	free(cl->request_uri);
 
 	free(cl->ws.error.msg);
+	free(cl->script_tx.buf);
 
 	list_del(&cl->list);
 	free(cl);

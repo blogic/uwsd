@@ -305,7 +305,13 @@ http_handle_body_data(uwsd_client_context_t *cl, uwsd_connection_t *conn, void *
 			}
 		}
 		else {
-			return uwsd_script_bodydata(cl, data, len);
+			/* the chunk is captured in the worker send buffer either way; the
+			 * caller consumes it and the send loop yields while it drains */
+			if (uwsd_script_bodydata(cl, data, len) == UWSD_SCRIPT_TX_ERROR) {
+				client_free(cl, "Error sending body to worker: %m");
+
+				return false;
+			}
 		}
 	}
 
@@ -1890,8 +1896,16 @@ uwsd_http_state_upstream_connected(uwsd_client_context_t *cl, uwsd_connection_st
 	size_t i;
 
 	if (cl->action->type == UWSD_ACTION_SCRIPT) {
-		if (!uwsd_script_request(cl))
-			return; /* failure */
+		switch (uwsd_script_request(cl)) {
+		case UWSD_SCRIPT_TX_ERROR:
+			return client_free(cl, "Error sending request to worker: %m");
+
+		case UWSD_SCRIPT_TX_PENDING:
+			return uwsd_state_transition(cl, STATE_CONN_UPSTREAM_SEND);
+
+		case UWSD_SCRIPT_TX_DONE:
+			break;
+		}
 	}
 	else if (cl->action->type == UWSD_ACTION_TCP_PROXY) {
 		uwsd_io_reset(httpbuf);
@@ -1950,6 +1964,20 @@ uwsd_http_state_upstream_connected(uwsd_client_context_t *cl, uwsd_connection_st
 __hidden void
 uwsd_http_state_upstream_send(uwsd_client_context_t *cl, uwsd_connection_state_t state, bool upstream)
 {
+	/* resume a pending worker send before forwarding more request data */
+	if (cl->action->type == UWSD_ACTION_SCRIPT && cl->script_tx.len) {
+		switch (uwsd_script_flush(cl)) {
+		case UWSD_SCRIPT_TX_PENDING:
+			return;
+
+		case UWSD_SCRIPT_TX_ERROR:
+			return client_free(cl, "Error sending request to worker: %m");
+
+		case UWSD_SCRIPT_TX_DONE:
+			break;
+		}
+	}
+
 	while (true) {
 		if (cl->action->type != UWSD_ACTION_SCRIPT &&
 		    !uwsd_iov_tx(&cl->upstream, STATE_CONN_UPSTREAM_SEND))
@@ -1965,6 +1993,10 @@ uwsd_http_state_upstream_send(uwsd_client_context_t *cl, uwsd_connection_state_t
 
 		if (!http_request_recv(cl))
 			return; /* failure */
+
+		/* a body chunk left the worker send buffer full: wait for writability */
+		if (cl->action->type == UWSD_ACTION_SCRIPT && cl->script_tx.len)
+			return;
 	}
 
 	if (cl->http.state == STATE_HTTP_BODY_CLOSE) {

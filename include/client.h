@@ -110,6 +110,10 @@ typedef struct uwsd_client_context {
 		uint8_t mask[4];
 	} ws;
 	struct iovec tx[3];
+	struct {
+		uint8_t *buf;
+		size_t len, pos, cap;
+	} script_tx;
 } uwsd_client_context_t;
 
 __hidden void client_create(int, uwsd_listen_t *, struct sockaddr *, size_t);
