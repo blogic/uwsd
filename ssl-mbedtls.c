@@ -128,7 +128,7 @@ static int
 servername_cb(void *arg, mbedtls_ssl_context *ssl, const unsigned char *name, size_t namelen)
 {
 	const char *hostname = (char *)name;
-	uwsd_client_context_t *cl = arg;
+	uwsd_client_context_t *cl = mbedtls_ssl_get_user_data_p(ssl);
 	ssl_ctx_t *tls_ctx;
 
 	if (hostname && strlen(hostname) == namelen) {
@@ -736,7 +736,7 @@ uwsd_ssl_init(uwsd_client_context_t *cl)
 		inet_ntop(cl->sa_peer.unspec.sa_family, &cl->sa_peer.in6.sin6_addr, buf, sizeof(buf)));
 #endif
 
-	mbedtls_ssl_conf_sni(&tls_ctx->conf, servername_cb, cl);
+	mbedtls_ssl_conf_sni(&tls_ctx->conf, servername_cb, NULL);
 
 	ssl = calloc(1, sizeof(*ssl));
 
@@ -758,6 +758,8 @@ uwsd_ssl_init(uwsd_client_context_t *cl)
 
 		return false;
 	}
+
+	mbedtls_ssl_set_user_data_p(ssl, cl);
 
 	mbedtls_ssl_set_bio(ssl, &cl->downstream,
 		ssl_lowlevel_send, ssl_lowlevel_recv, NULL);
